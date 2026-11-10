@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Last Mile Navigator – Data Editor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+body{margin:0;font:16px system-ui,sans-serif;color:#0B1F33;display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{padding:8px 12px;background:#0B5CAD;color:#fff;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+header h1{font-size:1.1rem;margin:0 auto 0 0}
+select,input,button{font:inherit;min-height:40px;padding:0 10px;border-radius:8px;border:2px solid #fff}
+button{background:#0B1F33;color:#fff;cursor:pointer}
+:focus-visible{outline:3px solid #FFB300;outline-offset:2px}
+#map{width:100%;height:100%}
+#form{position:absolute;z-index:1000;right:12px;bottom:12px;left:12px;max-width:380px;margin-left:auto;background:#fff;border:2px solid #0B1F33;border-radius:12px;padding:12px;display:none;gap:8px;flex-direction:column}
+#form input,#form textarea{border:2px solid #44546A;border-radius:8px;padding:8px;font:inherit}
+</style></head><body>
+<header><h1>Last Mile Navigator – Data Editor</h1>
+<label>Add: <select id="kind"></select></label>
+<label><input type="checkbox" id="poly"> Draw zone (polygon)</label>
+<button id="finish" hidden>Finish polygon</button>
+<input id="key" type="password" placeholder="Admin API key" aria-label="Admin API key"></header>
+<div id="map" role="application" aria-label="Campus map. Click to place a point."></div>
+<form id="form" aria-label="New point details"><strong id="ft"></strong>
+<label>Name <input id="name"></label>
+<label>Description <textarea id="desc" rows="2"></textarea></label>
+<label><input type="checkbox" id="ver"> Verified on site</label>
+<div><button type="submit">Save</button> <button type="button" id="cancel">Cancel</button></div></form>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Served from the API at /admin -> same origin. If opened elsewhere (file://, other port), point at the API.
+const API=location.port==='8000'?'':'http://localhost:8000';
+const KINDS={stairs:'#9B1C1C',steep_slope:'#B45309',curb_ramp:'#0E7490',elevator:'#0B5CAD',accessible_entrance:'#166534',obstruction:'#7A3E00',parking_lot:'#374151',lime_no_go:'#5B21B6',lime_parking:'#166534'};
+const $=id=>document.getElementById(id);
+Object.keys(KINDS).forEach(k=>$('kind').add(new Option(k.replace(/_/g,' '),k)));
+$('key').value=sessionStorage.getItem('k')||'';$('key').onchange=()=>sessionStorage.setItem('k',$('key').value);
+const map=L.map('map').setView([47.6553,-122.3035],16);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+const layer=L.layerGroup().addTo(map);let draft=null,verts=[],tmp=null;
+const hdr=()=>({'Content-Type':'application/json','X-API-Key':$('key').value});
+async function load(){layer.clearLayers();const fc=await (await fetch(API+'/api/points')).json();
+ L.geoJSON(fc,{style:f=>({color:KINDS[f.properties.kind],weight:3}),
+  pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:9,color:'#fff',weight:2,fillColor:KINDS[f.properties.kind],fillOpacity:1}),
+  onEachFeature:(f,l)=>{const p=f.properties,d=document.createElement('div');
+   d.append(Object.assign(document.createElement('strong'),{textContent:p.kind.replace(/_/g,' ')}),document.createElement('br'),
+    document.createTextNode((p.name||'')+' '+(p.description||'')+(p.verified?' ✓ verified':' (unverified)')),document.createElement('br'));
+   const b=document.createElement('button');b.textContent='Delete';
+   b.onclick=async()=>{if(confirm('Delete this point?')){await fetch(API+'/api/points/'+f.id,{method:'DELETE',headers:hdr()});load()}};
+   d.append(b);l.bindPopup(d)}}).addTo(layer)}
+function ask(g){draft=g;$('ft').textContent='New '+$('kind').value.replace(/_/g,' ');$('form').style.display='flex';$('name').focus()}
+map.on('click',e=>{if($('poly').checked){verts.push([e.latlng.lng,e.latlng.lat]);if(tmp)map.removeLayer(tmp);
+  tmp=L.polyline(verts.map(v=>[v[1],v[0]]),{color:'#000',dashArray:'4'}).addTo(map);$('finish').hidden=false}
+ else ask({type:'Point',coordinates:[e.latlng.lng,e.latlng.lat]})});
+$('finish').onclick=()=>{if(verts.length<3)return alert('Need at least 3 points');
+ ask({type:'Polygon',coordinates:[[...verts,verts[0]]]});verts=[];map.removeLayer(tmp);tmp=null;$('finish').hidden=true};
+$('cancel').onclick=()=>{draft=null;$('form').style.display='none'};
+$('form').onsubmit=async e=>{e.preventDefault();
+ const r=await fetch(API+'/api/points',{method:'POST',headers:hdr(),body:JSON.stringify({kind:$('kind').value,name:$('name').value||null,description:$('desc').value||null,geometry:draft,verified:$('ver').checked})});
+ if(!r.ok)return alert('Save failed: '+(await r.text()));$('cancel').click();e.target.reset();load()};
+load();
+</script></body></html>

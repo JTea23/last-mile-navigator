@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: lmn
+      POSTGRES_PASSWORD: lmn
+      POSTGRES_DB: lmn
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lmn"]
+      interval: 5s
+      retries: 10
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://lmn:lmn@db:5432/lmn
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+volumes:
+  pgdata:
